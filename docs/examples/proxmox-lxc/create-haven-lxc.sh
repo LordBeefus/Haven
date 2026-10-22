@@ -298,6 +298,8 @@ systemctl status haven --no-pager
 UPDATE_EOF
     chmod +x /usr/local/bin/update-haven
     ln -sf /usr/local/bin/update-haven /usr/local/bin/update
+    ln -sf /usr/local/bin/update-haven /usr/bin/update
+    ln -sf /usr/local/bin/update-haven /usr/bin/update-haven
 
     chown -R haven:haven /opt/haven /var/lib/haven /var/log/haven
 '
