@@ -263,10 +263,35 @@ pct exec "$CTID" -- bash -c '
         git clone -q https://github.com/ancsemi/Haven.git /opt/haven
     fi
 
-    # Install npm production dependencies
-    cd /opt/haven
-    npm install --omit=dev --silent >/dev/null 2>&1
-    chown -R haven:haven /opt/haven /var/lib/haven /var/log/haven
+    # Configure git safe directory for root and haven users
+    git config --system --add safe.directory /opt/haven
+
+    # Install in-container update helper script (/usr/local/bin/update-haven and symlink /usr/local/bin/update)
+    cat << 'UPDATE_EOF' > /usr/local/bin/update-haven
+#!/usr/bin/env bash
+set -e
+echo "==> Stopping Haven service..."
+systemctl stop haven
+
+echo "==> Pulling latest version from GitHub..."
+cd /opt/haven
+git config --system --add safe.directory /opt/haven 2>/dev/null || true
+git pull
+
+echo "==> Updating dependencies..."
+npm install --omit=dev --silent
+
+echo "==> Restoring file permissions..."
+chown -R haven:haven /opt/haven /var/lib/haven /var/log/haven
+
+echo "==> Restarting Haven..."
+systemctl start haven
+
+echo "==> Haven successfully updated!"
+systemctl status haven --no-pager
+UPDATE_EOF
+    chmod +x /usr/local/bin/update-haven
+    ln -sf /usr/local/bin/update-haven /usr/local/bin/update
 '
 
 # Additional components based on Access Mode
@@ -421,4 +446,8 @@ echo -e "  Designated Admin Username: ${GN}${ADMIN_USER}${CL}"
 echo -e "  1. On first login, click Register and create an account named '${GN}${ADMIN_USER}${CL}'."
 echo -e "  2. If you already registered a different username, promote it anytime via:"
 echo -e "     ${BL}pct exec ${CTID} -- sqlite3 /var/lib/haven/.haven/haven.db \"UPDATE users SET is_admin = 1 WHERE username = '<YOUR_USERNAME>';\" && pct exec ${CTID} -- systemctl restart haven${CL}"
+
+echo -e "\n${BL}Updating Haven in the Future:${CL}"
+echo -e "  From Proxmox host shell: ${GN}pct exec ${CTID} -- update${CL}"
+echo -e "  From inside container:   ${GN}update${CL}"
 echo ""

@@ -59,3 +59,19 @@ To promote a user to administrator via the container CLI:
 pct exec <CTID> -- sqlite3 /var/lib/haven/.haven/haven.db "UPDATE users SET is_admin = 1 WHERE username = '<USERNAME>';"
 pct exec <CTID> -- systemctl restart haven
 ```
+
+---
+
+## Updating Haven
+
+An in-container update shortcut (`update` / `update-haven`) is pre-installed. It safely stops the service, pulls the latest code from GitHub, refreshes production dependencies, fixes permissions, and restarts the service.
+
+From your Proxmox host shell:
+```bash
+pct exec <CTID> -- update
+```
+
+Or from inside the container console:
+```bash
+update
+```
