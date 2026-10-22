@@ -20,8 +20,11 @@ An automated, unprivileged Proxmox VE LXC installation script for [Haven](https:
 
 ## Quick Start (Run on Proxmox VE Host Shell)
 
+Download the script to review it first, then execute:
+
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/ancsemi/Haven/main/docs/examples/proxmox-lxc/create-haven-lxc.sh)
+curl -fsSL https://raw.githubusercontent.com/ancsemi/Haven/main/docs/examples/proxmox-lxc/create-haven-lxc.sh -o create-haven-lxc.sh
+bash create-haven-lxc.sh
 ```
 
 ### Installation Profiles
@@ -34,7 +37,7 @@ You can customize parameters via environment variables for unattended setup:
 
 ```bash
 export CTID="300"
-export HOSTNAME="haven"
+export CT_HOSTNAME="haven"
 export CORES="2"
 export MEMORY="2048"
 export DISK_SIZE="16"

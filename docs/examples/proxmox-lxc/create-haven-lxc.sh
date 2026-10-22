@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2021-2026 Haven Contributors
-# License: MIT
+# License: AGPL-3.0-or-later
 # Source: https://github.com/ancsemi/Haven
 
 set -euo pipefail
@@ -10,7 +10,8 @@ set -euo pipefail
 # ------------------------------------------------------------------------------
 APP="Haven"
 CTID="${CTID:-}"
-HOSTNAME="${HOSTNAME:-haven}"
+# Avoid collision with Bash's built-in HOSTNAME variable
+CT_HOSTNAME="${CT_HOSTNAME:-haven}"
 CORES="${CORES:-2}"
 MEMORY="${MEMORY:-2048}"
 SWAP="${SWAP:-512}"
@@ -54,8 +55,8 @@ DETECTED_GW=$(ip route | awk '/default/ {print $3}' | head -n1 || true)
 # ------------------------------------------------------------------------------
 if [ -t 0 ]; then
     echo -e "${YW}[?] Container Name / Hostname:${CL}"
-    read -r -p "    Enter container name [default: ${HOSTNAME}]: " input_hn
-    HOSTNAME="${input_hn:-$HOSTNAME}"
+    read -r -p "    Enter container name [default: ${CT_HOSTNAME}]: " input_hn
+    CT_HOSTNAME="${input_hn:-$CT_HOSTNAME}"
 
     echo -e "\n${YW}[?] Select Installation Profile:${CL}"
     echo -e "  ${GN}1)${CL} Quick Setup (Default resources: 2 vCPU, 2GB RAM, 16GB Disk on ${DETECTED_STORAGE})"
@@ -69,8 +70,8 @@ if [ -t 0 ]; then
         read -r -p "  Container ID [default: ${CTID:-$NEXT_CTID}]: " input_ctid
         CTID="${input_ctid:-${CTID:-$NEXT_CTID}}"
 
-        read -r -p "  Container Name / Hostname [default: ${HOSTNAME}]: " input_hn
-        HOSTNAME="${input_hn:-$HOSTNAME}"
+        read -r -p "  Container Name / Hostname [default: ${CT_HOSTNAME}]: " input_hn
+        CT_HOSTNAME="${input_hn:-$CT_HOSTNAME}"
 
         read -r -p "  CPU Cores [default: ${CORES}]: " input_cores
         CORES="${input_cores:-$CORES}"
@@ -160,7 +161,7 @@ fi
 
 echo -e "\n${BL}[INFO] Deployment Configuration:${CL}"
 echo -e "  Container ID : ${GN}${CTID}${CL}"
-echo -e "  Hostname     : ${GN}${HOSTNAME}${CL}"
+echo -e "  Hostname     : ${GN}${CT_HOSTNAME}${CL}"
 echo -e "  Cores        : ${GN}${CORES}${CL}"
 echo -e "  Memory       : ${GN}${MEMORY}MB (Swap: ${SWAP}MB)${CL}"
 echo -e "  Disk         : ${GN}${DISK_SIZE}GB on ${GN}${STORAGE}${CL}"
@@ -210,7 +211,7 @@ fi
 
 pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$DEBIAN_TEMPLATE" \
     --ostype debian \
-    --hostname "$HOSTNAME" \
+    --hostname "$CT_HOSTNAME" \
     --cores "$CORES" \
     --memory "$MEMORY" \
     --swap "$SWAP" \
@@ -246,13 +247,14 @@ done
 echo -e "${BL}[3/4] Installing dependencies inside container...${CL}"
 
 pct exec "$CTID" -- bash -c '
+    set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq curl git build-essential sqlite3 debian-keyring debian-archive-keyring apt-transport-https gpg >/dev/null
+    apt-get install -y -qq curl git build-essential sqlite3 debian-keyring debian-archive-keyring apt-transport-https gpg
 
     # Install Node.js 22 LTS (Haven requirement)
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
-    apt-get install -y -qq nodejs >/dev/null
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y -qq nodejs
 
     # Create dedicated unprivileged service user
     id -u haven &>/dev/null || useradd -r -s /usr/sbin/nologin -d /var/lib/haven -m haven
@@ -260,16 +262,20 @@ pct exec "$CTID" -- bash -c '
 
     # Clone Haven repository
     if [ ! -d /opt/haven/.git ]; then
-        git clone -q https://github.com/ancsemi/Haven.git /opt/haven
+        git clone https://github.com/ancsemi/Haven.git /opt/haven
     fi
 
     # Configure git safe directory for root and haven users
     git config --system --add safe.directory /opt/haven
 
+    # Install npm production dependencies
+    cd /opt/haven
+    npm install --omit=dev
+
     # Install in-container update helper script (/usr/local/bin/update-haven and symlink /usr/local/bin/update)
     cat << 'UPDATE_EOF' > /usr/local/bin/update-haven
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 echo "==> Stopping Haven service..."
 systemctl stop haven
 
@@ -279,7 +285,7 @@ git config --system --add safe.directory /opt/haven 2>/dev/null || true
 git pull
 
 echo "==> Updating dependencies..."
-npm install --omit=dev --silent
+npm install --omit=dev
 
 echo "==> Restoring file permissions..."
 chown -R haven:haven /opt/haven /var/lib/haven /var/log/haven
@@ -292,24 +298,28 @@ systemctl status haven --no-pager
 UPDATE_EOF
     chmod +x /usr/local/bin/update-haven
     ln -sf /usr/local/bin/update-haven /usr/local/bin/update
+
+    chown -R haven:haven /opt/haven /var/lib/haven /var/log/haven
 '
 
 # Additional components based on Access Mode
 if [ "$ACCESS_MODE" == "caddy" ]; then
     echo -e "${BL}[INFO] Installing Caddy reverse proxy...${CL}"
     pct exec "$CTID" -- bash -c '
+        set -euo pipefail
         curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
         curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
         apt-get update -qq
-        apt-get install -y -qq caddy >/dev/null
+        apt-get install -y -qq caddy
     '
 elif [ "$ACCESS_MODE" == "tailscale" ]; then
     echo -e "${BL}[INFO] Installing Tailscale mesh VPN client...${CL}"
     pct exec "$CTID" -- bash -c '
+        set -euo pipefail
         curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
         curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
         apt-get update -qq
-        apt-get install -y -qq tailscale >/dev/null
+        apt-get install -y -qq tailscale
         systemctl enable --now tailscaled
     '
 fi
@@ -344,7 +354,7 @@ Environment=PORT=3000
 Environment=ADMIN_USERNAME=${ADMIN_USER}
 ${HOST_BIND}
 ${FORCE_HTTP_SETTING}
-Environment=DATA_DIR=/var/lib/haven
+Environment=HAVEN_DATA_DIR=/var/lib/haven
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=5
